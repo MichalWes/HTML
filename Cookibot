@@ -1,0 +1,22 @@
+/* Laptop / zoomed desktop */
+@media (min-width: 768px) and (max-width: 1279px) {
+  #CybotCookiebotDialog {
+    top: auto !important;
+    bottom: 24px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 720px !important;
+    max-width: calc(100vw - 48px) !important;
+  }
+}
+
+/* Real mobile */
+@media (max-width: 767px) {
+  #CybotCookiebotDialog {
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    transform: none !important;
+  }
+}
