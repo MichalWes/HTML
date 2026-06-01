@@ -1,0 +1,17 @@
+/* Keep Cookiebot banner at bottom on zoomed/laptop desktop */
+
+@media (min-width: 768px) and (max-width: 1279px) {
+
+  #CybotCookiebotDialog {
+
+    top: auto !important;
+
+    bottom: 24px !important;
+
+    left: 50% !important;
+
+    transform: translateX(-50%) !important;
+
+  }
+
+}
