@@ -1,0 +1,68 @@
+function toggleAriaExpandedForMobile(rootNode, breakpoint = 1025) {
+  if (!rootNode || typeof rootNode.querySelectorAll !== "function") {
+    throw new Error("toggleAriaExpandedForMobile: rootNode must be an HTML node.");
+  }
+
+  const savedValues = new Map();
+  let isMobile = null;
+
+  const getAriaExpandedElements = () => {
+    const elements = Array.from(rootNode.querySelectorAll("[aria-expanded]"));
+
+    // Include the root node itself if it has aria-expanded
+    if (
+      rootNode.nodeType === Node.ELEMENT_NODE &&
+      rootNode.hasAttribute("aria-expanded")
+    ) {
+      elements.unshift(rootNode);
+    }
+
+    return elements;
+  };
+
+  const removeAriaExpanded = () => {
+    getAriaExpandedElements().forEach((element) => {
+      if (!savedValues.has(element)) {
+        savedValues.set(element, element.getAttribute("aria-expanded"));
+      }
+
+      element.removeAttribute("aria-expanded");
+    });
+  };
+
+  const restoreAriaExpanded = () => {
+    savedValues.forEach((value, element) => {
+      if (document.contains(element)) {
+        element.setAttribute("aria-expanded", value);
+      }
+    });
+
+    savedValues.clear();
+  };
+
+  const update = () => {
+    const shouldBeMobile = window.innerWidth < breakpoint;
+
+    if (shouldBeMobile === isMobile) return;
+
+    isMobile = shouldBeMobile;
+
+    if (isMobile) {
+      removeAriaExpanded();
+    } else {
+      restoreAriaExpanded();
+    }
+  };
+
+  update();
+
+  window.addEventListener("resize", update);
+
+  return {
+    update,
+    destroy() {
+      window.removeEventListener("resize", update);
+      restoreAriaExpanded();
+    },
+  };
+}
