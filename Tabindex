@@ -1,0 +1,22 @@
+<a href="#what" onclick="return scrollToSection('what')">
+  What investors are thinking
+</a>
+
+<h2 id="what" tabindex="-1">
+  What investors are thinking
+</h2>
+
+function scrollToSection(id) {
+  const target = document.getElementById(id);
+
+  if (!target) return true;
+
+  target.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start'
+  });
+
+  target.focus({ preventScroll: true });
+
+  return false;
+}
