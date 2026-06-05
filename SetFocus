@@ -1,0 +1,24 @@
+function setActiveOnFirstChild(containerId) {
+  const container = document.getElementById(containerId);
+
+  if (!container) {
+    console.warn(`No element found with id "${containerId}"`);
+    return null;
+  }
+
+  const firstChild = container.firstElementChild;
+
+  if (!firstChild) {
+    console.warn(`Container "${containerId}" has no child elements`);
+    return null;
+  }
+
+  // Make it focusable if it is not naturally focusable
+  if (!firstChild.hasAttribute("tabindex")) {
+    firstChild.setAttribute("tabindex", "-1");
+  }
+
+  firstChild.focus();
+
+  return firstChild;
+}
