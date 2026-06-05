@@ -1,0 +1,142 @@
+<!-- Remove any empty <tr> from <thead> -->
+
+<th scope="col" data-column="0">
+  <button type="button" class="dt-sort-button">
+    Name
+  </button>
+</th>
+
+<th scope="col" data-column="1">
+  <button type="button" class="dt-sort-button">
+    Share Class / Ticker
+  </button>
+</th>
+
+<th scope="col" data-column="2">
+  <button type="button" class="dt-sort-button">
+    NAV
+  </button>
+</th>
+
+.dt-sort-button {
+  position: relative;
+  background: none;
+  border: 0;
+  padding: 0 1.25rem 0 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.dt-sort-button:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.dt-sort-button::before,
+.dt-sort-button::after {
+  position: absolute;
+  right: .5rem;
+  font-size: 28px;
+  color: #273846;
+}
+
+.dt-sort-button::before {
+  content: "\01F890";
+  top: 40%;
+  transform: translateY(-30%) rotate(90deg);
+}
+
+.dt-sort-button::after {
+  content: "\01F892";
+  top: 60%;
+  transform: translateY(-50%) rotate(90deg);
+}
+
+.dt-sort-button.is-sorted-asc::before {
+  content: "\01F890";
+  top: 50%;
+  transform: translateY(-50%) rotate(90deg);
+}
+
+.dt-sort-button.is-sorted-asc::after {
+  content: "";
+}
+
+.dt-sort-button.is-sorted-desc::before {
+  content: "";
+}
+
+.dt-sort-button.is-sorted-desc::after {
+  content: "\01F892";
+  top: 50%;
+  transform: translateY(-50%) rotate(90deg);
+}
+
+/* Remove / override old DataTables arrows on <th> */
+table.dataTable thead .sorting::before,
+table.dataTable thead .sorting::after,
+table.dataTable thead .sorting_asc::before,
+table.dataTable thead .sorting_asc::after,
+table.dataTable thead .sorting_desc::before,
+table.dataTable thead .sorting_desc::after {
+  content: "" !important;
+  display: none !important;
+
+var table = $('#funds-table').DataTable({
+  ordering: true,
+  columnDefs: [
+    {
+      targets: '_all',
+      orderable: false
+    }
+  ],
+  order: [[0, 'asc']]
+});
+
+$('#funds-table thead').on('click', '.dt-sort-button', function () {
+  var th = $(this).closest('th');
+  var columnIndex = Number(th.attr('data-column'));
+
+  var currentOrder = table.order()[0];
+  var currentColumn = currentOrder[0];
+  var currentDirection = currentOrder[1];
+
+  var nextDirection =
+    currentColumn === columnIndex && currentDirection === 'asc'
+      ? 'desc'
+      : 'asc';
+
+  table.order([[columnIndex, nextDirection]]).draw();
+});
+
+table.on('order.dt draw.dt', function () {
+  updateSortButtons();
+});
+
+updateSortButtons();
+
+function updateSortButtons() {
+  var currentOrder = table.order()[0];
+  var sortedColumn = currentOrder[0];
+  var direction = currentOrder[1];
+
+  $('#funds-table thead th')
+    .removeAttr('tabindex')
+    .removeAttr('aria-label')
+    .removeAttr('aria-sort');
+
+  $('#funds-table thead th[data-column]').each(function () {
+    var th = $(this);
+    var button = th.find('.dt-sort-button');
+    var columnIndex = Number(th.attr('data-column'));
+
+    button.removeClass('is-sorted-asc is-sorted-desc');
+
+    if (columnIndex === sortedColumn) {
+      th.attr('aria-sort', direction === 'asc' ? 'ascending' : 'descending');
+      button.addClass(direction === 'asc' ? 'is-sorted-asc' : 'is-sorted-desc');
+    }
+  });
+}
+}
