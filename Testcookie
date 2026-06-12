@@ -1,0 +1,93 @@
+<sly data-sly-test.launchScript="${caconfig['...'].launchscript}"></sly>
+
+<script id="site-consent-config" type="application/json">
+  {
+    "adobeLaunchSrc": "${launchScript @ context='scriptString'}",
+    "axeptioAnalyticsKey": "adobe_analytics"
+  }
+</script>
+
+<script>
+  window.axeptioSettings = {
+    clientId: "YOUR_AXEPTIO_CLIENT_ID",
+    cookiesVersion: "YOUR_COOKIES_VERSION"
+  };
+
+  window._axcb = window._axcb || [];
+</script>
+
+<sly
+  data-sly-use.clientlib="/libs/granite/sightly/templates/clientlib.html"
+  data-sly-call="${clientlib.js @ categories='yourproject.consent'}">
+</sly>
+
+(function () {
+  window._axcb = window._axcb || [];
+
+  window._axcb.push(function (axeptio) {
+    axeptio.on("cookies:complete", function (choices) {
+      var config = readConsentConfig();
+
+      if (hasConsent(choices, config.axeptioAnalyticsKey)) {
+        loadAdobeLaunch(config.adobeLaunchSrc);
+      }
+    });
+  });
+
+  loadAxeptioSdk();
+
+  function readConsentConfig() {
+    var element = document.getElementById("site-consent-config");
+
+    if (!element) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(element.textContent);
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function hasConsent(choices, key) {
+    return Boolean(choices && key && choices[key]);
+  }
+
+  function loadAdobeLaunch(src) {
+    if (!isValidAdobeLaunchSrc(src)) {
+      return;
+    }
+
+    if (window.__adobeLaunchLoaded) {
+      return;
+    }
+
+    window.__adobeLaunchLoaded = true;
+
+    var script = document.createElement("script");
+    script.async = true;
+    script.src = src;
+
+    document.head.appendChild(script);
+  }
+
+  function isValidAdobeLaunchSrc(src) {
+    return typeof src === "string" &&
+      /^https:\/\/assets\.adobedtm\.com\/.*\/launch-[a-zA-Z0-9_-]+(\.min)?\.js$/.test(src);
+  }
+
+  function loadAxeptioSdk() {
+    if (window.__axeptioSdkLoaded) {
+      return;
+    }
+
+    window.__axeptioSdkLoaded = true;
+
+    var script = document.createElement("script");
+    script.async = true;
+    script.src = "https://static.axept.io/sdk.js";
+
+    document.head.appendChild(script);
+  }
+})();
