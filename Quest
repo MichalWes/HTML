@@ -1,0 +1,458 @@
+# Senior Java Developer: 70 pytań i odpowiedzi
+
+Materiał jest przygotowany pod rozmowy na stanowiska Senior Java Developer, szczególnie w projektach wykorzystujących Spring Boot. Odpowiedzi pokazują nie tylko definicje, ale też kompromisy, typowe awarie i decyzje oczekiwane od seniora.
+
+## Java
+
+### 1. Jak działa Java Memory Model i relacja happens-before?
+
+Java Memory Model (JMM) definiuje, kiedy zapis wykonany przez jeden wątek staje się widoczny dla innego oraz jakie zmiany kolejności instrukcji mogą wykonywać kompilator, JIT i procesor. Bez synchronizacji każdy wątek może obserwować nieaktualne wartości, a operacje mogą być widziane w kolejności innej niż w kodzie źródłowym.
+
+Relacja *happens-before* daje gwarancję widoczności i uporządkowania. Przykłady: zwolnienie monitora następuje przed późniejszym przejęciem tego samego monitora; zapis do pola `volatile` następuje przed późniejszym odczytem tego pola; operacje wykonane przed `Thread.start()` są widoczne w uruchomionym wątku; zakończenie wątku następuje przed poprawnym powrotem z `join()`. Relacja jest przechodnia.
+
+`happens-before` nie oznacza następstwa w czasie ani wspólnej blokady. Jest formalną gwarancją obserwowalności. Bez niej kod może czasem działać w testach, a psuć się pod obciążeniem lub na innej architekturze CPU.
+
+### 2. Czym różnią się `volatile`, `synchronized` i klasy atomowe?
+
+`volatile` zapewnia widoczność najnowszego zapisu oraz ogranicza zmianę kolejności operacji wokół pola. Nie zapewnia atomowości operacji złożonych, więc `counter++` pozostaje błędne: składa się z odczytu, zwiększenia i zapisu.
+
+`synchronized` zapewnia wzajemne wykluczanie, widoczność i reentrancy. Chroni cały niezmiennik, nawet jeśli obejmuje kilka pól lub operacji. Wadą może być kontencja, choć współczesny JVM dobrze optymalizuje monitory.
+
+`AtomicInteger`, `AtomicReference` i podobne klasy opierają się zwykle na CAS. Są dobre dla prostych, niezależnych zmian stanu. Przy dużej kontencji CAS może wielokrotnie ponawiać operację. `LongAdder` skaluje się lepiej dla intensywnie aktualizowanych liczników, ale nie daje jednego liniaryzowalnego odczytu w trakcie aktualizacji. Gdy trzeba zachować złożony niezmiennik, prostsza blokada bywa bezpieczniejsza od skomplikowanego kodu lock-free.
+
+### 3. Kiedy `HashMap` może sprawiać problemy? Jak działa wewnętrznie?
+
+`HashMap` wylicza hash klucza, mapuje go na indeks tablicy i szuka wpisu w danym kubełku, porównując klucze przez `equals()`. Kolizje są przechowywane w liście, a od Javy 8 przy odpowiednio dużej liczbie elementów i pojemności kubełek może zostać przekształcony w drzewo czerwono-czarne. Po przekroczeniu progu wynikającego z pojemności i load factor mapa jest powiększana, a wpisy redystrybuowane.
+
+Typowe problemy to mutowalny klucz, niespójne `equals()` i `hashCode()`, słaba funkcja hashująca oraz użycie współbieżne bez ochrony. Zmiana pola uczestniczącego w hashu po włożeniu klucza może uczynić wpis praktycznie nieosiągalnym. `HashMap` pozwala na jeden klucz `null`, nie gwarantuje kolejności i nie jest thread-safe. Współbieżnie należy użyć np. `ConcurrentHashMap`, ale także wtedy wieloetapowe sekwencje trzeba wyrazić operacją atomową, np. `computeIfAbsent()`.
+
+### 4. Jak poprawnie implementować `equals()` i `hashCode()`?
+
+`equals()` musi być zwrotne, symetryczne, przechodnie, spójne i zwracać `false` dla `null`. Jeżeli dwa obiekty są równe według `equals()`, muszą mieć ten sam `hashCode()`. Odwrotna implikacja nie obowiązuje.
+
+Do porównania należy używać tych samych, stabilnych pól w obu metodach. Problemem są klasy dziedziczone, proxy ORM i encje bez ustalonego identyfikatora. Dla encji JPA trzeba przyjąć świadomą strategię: stabilny klucz biznesowy albo ostrożnie obsłużony identyfikator techniczny. Wygenerowanie metod ze wszystkich mutowalnych pól może zepsuć `HashSet` po zmianie obiektu. Rekordy dobrze nadają się do niemutowalnych obiektów wartościowych, ponieważ generują semantykę strukturalną.
+
+### 5. Czym różnią się `Comparable` i `Comparator`?
+
+`Comparable<T>` definiuje naturalny porządek wewnątrz klasy przez `compareTo()`. `Comparator<T>` jest zewnętrzną strategią i pozwala zdefiniować wiele porządków bez zmiany klasy. Preferuje się kompozycję: `Comparator.comparing(...).thenComparing(...)` oraz jawne `nullsFirst()` lub `nullsLast()`.
+
+Porządek powinien być przechodni i antysymetryczny. W kolekcjach sortowanych warto zachować spójność z `equals()`, ponieważ `TreeSet` i `TreeMap` uznają elementy z wynikiem porównania `0` za ten sam klucz, nawet gdy `equals()` zwraca `false`. Nie należy porównywać liczb przez odejmowanie, bo grozi to przepełnieniem; służą do tego `Integer.compare()` i odpowiedniki.
+
+### 6. Jakie problemy może powodować mutowalność obiektów?
+
+Mutowalność utrudnia śledzenie stanu, współbieżność, cache'owanie i zachowanie niezmienników. Ten sam obiekt przekazany wielu komponentom może zostać zmieniony w nieoczekiwanym miejscu. Mutowalny klucz psuje kolekcje haszujące, a mutowalny DTO współdzielony między wątkami może prowadzić do race condition.
+
+Preferowane są finalne pola, konstruktor ustanawiający poprawny stan, rekordy i defensywne kopie kolekcji. Niemutowalność nie oznacza automatycznie głębokiej niemutowalności: finalna referencja do mutowalnej listy nadal pozwala zmieniać jej zawartość. Nie należy jednak wymuszać niemutowalności wszędzie; encje domenowe naturalnie zmieniają stan. Ważne, by zmiany odbywały się przez metody chroniące reguły domeny, a nie dowolne settery.
+
+### 7. Kiedy używać `Optional`, a kiedy nie?
+
+`Optional` jest przede wszystkim typem wyniku mówiącym, że wartość może nie istnieć. Pomaga wymusić jawną obsługę braku wartości i dobrze współpracuje z `map`, `flatMap`, `filter`, `orElseGet` oraz `orElseThrow`.
+
+Zwykle nie powinien być polem encji/DTO, parametrem metody ani elementem kolekcji. Frameworki serializujące i JPA mogą go obsługiwać nieintuicyjnie. `Optional<List<T>>` jest zazwyczaj zbędny, bo pusta lista już reprezentuje brak wyników. Trzeba znać różnicę między `orElse()`, który oblicza argument zawsze, a leniwym `orElseGet()`. `Optional.get()` bez sprawdzenia neguje korzyść z typu. W gorących ścieżkach trzeba również uwzględnić alokacje, choć czytelność zwykle jest ważniejsza.
+
+### 8. Jak działa lazy evaluation w Stream API?
+
+Operacje pośrednie, np. `map`, `filter` i `sorted`, budują potok, ale nie wykonują go do momentu operacji terminalnej, np. `collect`, `reduce`, `findFirst`. Elementy zwykle przechodzą przez cały łańcuch pojedynczo, co umożliwia short-circuiting: `findFirst`, `anyMatch` czy `limit` mogą zakończyć pracę wcześniej.
+
+Operacje stanowe, takie jak `sorted` lub `distinct`, mogą wymagać buforowania. Strumień jest jednorazowy i nie powinien zawierać efektów ubocznych zależnych od kolejności. Źródło nie powinno być modyfikowane podczas przetwarzania. Stream poprawia deklaratywność transformacji danych, ale złożona logika domenowa z wyjątkami i efektami ubocznymi bywa czytelniejsza jako zwykła pętla.
+
+### 9. Jakie są pułapki `parallelStream()`?
+
+`parallelStream()` używa domyślnie wspólnej puli `ForkJoinPool.commonPool`. Może konkurować z innymi zadaniami w procesie, a operacje blokujące mogą wyczerpać wątki. Narzut dzielenia i łączenia danych sprawia, że małe kolekcje lub tanie operacje często działają wolniej równolegle.
+
+Kod musi być bezpieczny wątkowo, bez współdzielonego mutowalnego stanu. Znaczenie ma możliwość efektywnego podziału źródła, koszt pojedynczego elementu i wymaganie zachowania kolejności. Równoległość powinna wynikać z pomiaru benchmarkiem, nie z intuicji. W aplikacjach serwerowych lepiej kontrolować własność zasobów przez jawny executor, `CompletableFuture`, reaktywny pipeline albo virtual threads, zależnie od charakteru pracy.
+
+### 10. Checked i unchecked exceptions oraz wyjątki domenowe
+
+Checked exceptions kompilator wymusza obsłużyć lub zadeklarować; unchecked dziedziczą po `RuntimeException`. Checked mogą mieć sens, gdy wywołujący realnie potrafi podjąć lokalną decyzję naprawczą, lecz w rozbudowanych warstwach często prowadzą do mechanicznego przepisywania `throws` lub opakowywania.
+
+Wyjątek domenowy powinien opisywać znaczenie biznesowe, np. `InsufficientFunds`, a nie detal techniczny. Na granicy infrastruktury warto tłumaczyć wyjątki biblioteki na stabilny model aplikacji. Nie należy używać wyjątków jako zwykłego sterowania przepływem ani łapać `Exception` bez konkretnej strategii. Logowanie powinno nastąpić raz, w miejscu posiadającym kontekst i odpowiedzialnym za obsługę; logowanie i ponowne rzucenie na każdej warstwie produkuje duplikaty.
+
+### 11. Generics, type erasure oraz `? extends` i `? super`
+
+Generics zapewniają bezpieczeństwo typów głównie w kompilacji. Przez type erasure `List<String>` i `List<Integer>` mają w runtime zasadniczo tę samą klasę, nie można utworzyć `new T()`, tablicy `new T[]` ani sprawdzić `instanceof List<String>`. Informację o typie można przekazać jawnie przez `Class<T>` lub token typu.
+
+Zasada PECS brzmi: producer extends, consumer super. Z `List<? extends Number>` bezpiecznie odczytujemy `Number`, ale zasadniczo nic poza `null` nie dodamy. Do `List<? super Integer>` możemy dodawać `Integer`, lecz odczyt ma typ `Object`. `List<Integer>` nie jest podtypem `List<Number>`, ponieważ generyki są niekowariantne. Wildcardów warto używać na publicznych granicach dla elastyczności, ale unikać nadmiernie skomplikowanych sygnatur.
+
+### 12. Co zmieniły virtual threads i kiedy ich używać?
+
+Virtual threads są lekkimi wątkami zarządzanymi przez JVM. Umożliwiają obsługę bardzo wielu współbieżnych, głównie blokujących zadań w prostym stylu thread-per-request. Nie przyspieszają obliczeń CPU i nie zwiększają liczby rdzeni. Ułatwiają skalowanie kodu korzystającego z blokującego JDBC lub HTTP, jeśli zależności dobrze współpracują z tym modelem.
+
+Nie należy poolować virtual threads w celu ograniczenia ich liczby; ogranicza się zasób, np. liczbę połączeń do bazy, semaforem lub pulą połączeń. Trzeba obserwować pinning carrier thread, długie sekcje `synchronized`, native calls i lokalne zmienne wątkowe. Nadal potrzebne są timeouty, structured concurrency, anulowanie i kontrola przeciążenia. Migracja nie polega wyłącznie na zmianie executora: ograniczeniem często pozostają DB, zewnętrzne API i pamięć.
+
+### 13. Jak diagnozować wyciek pamięci, wysokie CPU i deadlock?
+
+Najpierw ustala się objaw na podstawie metryk: heap, GC pause, allocation rate, liczba wątków, CPU, latency i błędy. Przy pamięci analizuje się heap dump i dominator tree w narzędziu takim jak Eclipse MAT; ważna jest ścieżka od GC root, nie sama liczba obiektów. Java Flight Recorder i async-profiler pokazują alokacje i gorące miejsca z małym narzutem.
+
+Przy wysokim CPU pobiera się kilka thread dumpów i profil CPU, korelując systemowy wątek z Java thread. Deadlock może zostać wykryty w thread dumpie lub przez `ThreadMXBean`. Przy częstym full GC sprawdza się, czy heap rzeczywiście rośnie po pełnym GC, czy problemem jest za mały heap lub wysoka chwilowa alokacja. Diagnoza powinna objąć zmianę wdrożeniową, ruch i zależności; zwiększenie pamięci bez znalezienia przyczyny tylko odsuwa awarię.
+
+### 14. Jak działa garbage collector i jak dobierać GC?
+
+GC odnajduje obiekty osiągalne od GC roots i odzyskuje pamięć nieosiągalnych. Większość collectorów wykorzystuje hipotezę generacyjną: wiele obiektów żyje krótko. Collectory różnią się kompromisem między przepustowością, opóźnieniami i użyciem pamięci. G1 jest typowym domyślnym wyborem; ZGC i Shenandoah celują w niskie pauzy przy dużych stertach; Parallel GC może być dobry dla maksymalnej przepustowości batcha.
+
+Dobór wynika z SLO, rozmiaru heapu, allocation rate i środowiska kontenerowego. Należy analizować logi GC, czas pauz, częstotliwość cykli, promotion, humongous allocations i zapas pamięci całego procesu, nie tylko `-Xmx`. Strojenie flag przed naprawą nadmiernych alokacji jest zwykle błędem. Najpierw dobry profiling, właściwy limit pamięci i aktualny JDK, potem kontrolowane testy obciążeniowe.
+
+### 15. Jak zaprojektować klasę bezpieczną w środowisku wielowątkowym?
+
+Najprościej unikać współdzielonego stanu: użyć niemutowalności, confinement lub przekazywania wiadomości. Jeśli stan jest współdzielony, należy zdefiniować niezmienniki i chronić wszystkie pola uczestniczące w nich jednym mechanizmem synchronizacji. Publikacja obiektu także musi być bezpieczna, np. przez finalne pola, blokadę, `volatile` albo kolekcję współbieżną.
+
+Trzeba opisać, które metody są atomowe i czy callback może być wywołany pod blokadą. Nie należy udostępniać referencji do wewnętrznych mutowalnych kolekcji. Kolekcja thread-safe nie czyni atomową sekwencji `if (!contains) add`; należy użyć dostarczonej operacji atomowej. Projekt ocenia się testami stresowymi, ale test nie jest dowodem poprawności JMM.
+
+## Współbieżność
+
+### 16. `ExecutorService`, `CompletableFuture` i virtual threads
+
+`ExecutorService` zarządza wykonaniem zadań i cyklem życia puli; daje `Future`, kolejkę oraz kontrolę liczby platform threads. `CompletableFuture` jest modelem kompozycji asynchronicznych etapów, obsługi sukcesu i błędu. Nie jest automatycznie „nieblokujący”: funkcje wykonują się w określonym executorze, a `join()` blokuje wywołującego.
+
+Virtual threads upraszczają dużą liczbę blokujących przepływów i często pozwalają zachować zwykły kod sekwencyjny. `CompletableFuture` nadal jest użyteczny, gdy naprawdę składamy równoległe wyniki lub API jest asynchroniczne. W każdym modelu trzeba jawnie ustalić executor, timeout, propagację kontekstu, anulowanie, obsługę wyjątków i limity zasobów. Nie wolno wykonywać blokujących operacji w przypadkowej małej puli.
+
+### 17. Race condition, deadlock, livelock i starvation
+
+Race condition oznacza, że wynik zależy od niedeterministycznego przeplotu operacji. Deadlock występuje, gdy wątki cyklicznie czekają na zasoby. Zapobiega się mu m.in. stałą kolejnością przejmowania blokad, ograniczeniem ich zakresu lub `tryLock` z sensowną strategią.
+
+Livelock oznacza, że wątki pracują i reagują na siebie, ale nie robią postępu, np. stale ustępują. Starvation występuje, gdy wątek przez długi czas nie dostaje CPU, blokady lub miejsca w puli. Fair lock może ograniczyć starvation, ale kosztuje przepustowość. Senior powinien umieć rozpoznać objaw w thread dumpach i zaprojektować eliminację współdzielonego stanu, nie tylko dodać kolejną blokadę.
+
+### 18. Jak zapewnić atomowość operacji obejmującej kilka kroków?
+
+W jednym procesie można objąć całą sekwencję wspólną blokadą albo użyć jednej atomowej operacji struktury danych. W bazie stosuje się transakcję, właściwy poziom izolacji, constraint, warunkowy `UPDATE` lub blokadę rekordu. Constraint jest często ostatnią i najbardziej wiarygodną linią obrony, np. unikalność klucza idempotencji.
+
+Między usługami nie istnieje zwykła transakcja ACID obejmująca wszystko. Potrzebne są idempotencja, trwały stan procesu, outbox, saga i kompensacja. Najpierw należy precyzyjnie zdefiniować granicę atomowości i zachowanie po częściowym sukcesie. „Sprawdzę, a potem zapiszę” bez wspólnej blokady lub warunku w zapisie jest klasycznym TOCTOU.
+
+### 19. Jak projektować idempotentne przetwarzanie komunikatów?
+
+Producent nadaje stabilny identyfikator operacji. Konsument przechowuje ten identyfikator lub wynik operacji w tej samej transakcji co efekt biznesowy. Unikalny constraint rozstrzyga wyścig między duplikatami. Ponowienie zwraca poprzedni wynik albo bezpiecznie nic nie robi.
+
+Nie wystarczy cache w pamięci: restart usuwa wiedzę. Trzeba ustalić zakres klucza, czas retencji, zachowanie dla tego samego klucza z inną treścią i sposób czyszczenia. Operacje zewnętrzne również muszą przyjmować idempotency key albo wymagać reconciliacji. „Exactly once” w praktyce zwykle oznacza at-least-once delivery plus idempotentny efekt w określonej granicy.
+
+### 20. Backpressure, limity i pule wątków
+
+System musi ograniczać liczbę jednoczesnych operacji zgodnie z pojemnością zależności. Stosuje się ograniczone kolejki, semafory, rate limiting, limity połączeń, bulkheads i odrzucenie z czytelnym błędem zamiast nieograniczonego buforowania. Timeout powinien wynikać z budżetu całego żądania.
+
+Rozmiar puli CPU-bound jest bliski liczbie rdzeni, a dla I/O zależy od czasu oczekiwania i limitów zasobu. Virtual threads nie usuwają potrzeby backpressure. Należy mierzyć queue time oddzielnie od execution time. Retry musi mieć limit, backoff, jitter i wspólny deadline; inaczej zwiększa przeciążenie. Load shedding i degradacja funkcji bywają warunkiem zachowania rdzenia usługi.
+
+## Spring
+
+### 21. Jak działa cykl życia beana Springowego?
+
+Kontener odczytuje definicję, tworzy instancję, wstrzykuje zależności, wywołuje callbacki `Aware`, następnie `BeanPostProcessor` przed inicjalizacją, `@PostConstruct`/`InitializingBean`/metodę init i post-processory po inicjalizacji. Na tym etapie bean może zostać opakowany w proxy. Przy zamknięciu kontekstu wywoływane są `@PreDestroy`, `DisposableBean` lub metoda destroy.
+
+Konstruktory nie powinny zależeć od aktywnego proxy ani wykonywać ciężkiego I/O. `BeanPostProcessor` umożliwia m.in. AOP i obsługę adnotacji. Scope wpływa na cykl życia: kontener nie zarządza automatycznie zniszczeniem prototypów. Kolejność beanów można kontrolować, ale uzależnianie logiki biznesowej od kolejności inicjalizacji jest sygnałem słabego projektu.
+
+### 22. `@Component`, `@Service`, `@Repository` i `@Configuration`
+
+Wszystkie są stereotype annotations rejestrującymi bean. `@Service` komunikuje rolę warstwy aplikacyjnej, `@Repository` warstwę dostępu do danych i uczestniczy w translacji wyjątków persistence do hierarchii Springa, a `@Component` jest ogólne.
+
+`@Configuration` opisuje źródło definicji `@Bean`. W pełnym trybie Spring może proxy'ować klasę, aby wywołania metod `@Bean` zwracały obiekt z kontenera zamiast nowej instancji. Przy `proxyBeanMethods=false` działa „lite mode”, szybszy i odpowiedni, gdy metody nie wywołują się wzajemnie. Adnotacje semantyczne ułatwiają architekturę i testy, nawet jeśli rejestracja technicznie jest podobna.
+
+### 23. Dlaczego constructor injection?
+
+Konstruktor ujawnia wszystkie obowiązkowe zależności, umożliwia finalne pola i gwarantuje poprawny obiekt po utworzeniu. Klasa daje się testować bez kontenera. Wstrzykiwanie przez pola ukrywa kontrakt, utrudnia testy i pozwala istnieć częściowo zainicjalizowanemu obiektowi.
+
+Setter injection ma sens dla zależności rzeczywiście opcjonalnych lub zmienialnych, choć opcjonalność powinna być rzadka. Bardzo długi konstruktor sygnalizuje zbyt wiele odpowiedzialności; nie jest argumentem za ukryciem zależności przez field injection. Przy jednym konstruktorze `@Autowired` nie jest potrzebne.
+
+### 24. Kilka beanów tego samego typu
+
+Spring może rozstrzygnąć zależność przez `@Primary`, `@Qualifier`, nazwę beana albo wstrzyknięcie kolekcji/mapy wszystkich implementacji. `@Qualifier` jest zwykle najbardziej jawny; można tworzyć własne adnotacje kwalifikujące. Generyki także mogą uczestniczyć w rozstrzyganiu.
+
+Nie należy polegać przypadkowo na nazwie parametru, szczególnie gdy konfiguracja kompilatora może jej nie zachować. Przy strategiach biznesowych dobrym wzorcem jest wstrzyknięcie `Map<StrategyType, Strategy>` przygotowanej jawnie i walidacja kompletności podczas startu. `@Primary` jest dobry dla rzeczywistego domyślnego wariantu, a nie do maskowania niejasnego projektu.
+
+### 25. Jak działa proxy w Springu i jakie ma ograniczenia?
+
+Spring AOP zwykle tworzy proxy JDK dla interfejsu albo proxy klasowe oparte na CGLIB. Wywołanie przechodzące przez proxy może uruchomić interceptory, np. transakcję, cache lub bezpieczeństwo. Wywołanie `this.method()` pozostaje wewnątrz obiektu i omija proxy.
+
+Metody finalne/prywatne i finalne klasy ograniczają proxy klasowe. Adnotacja na metodzie niewidocznej w odpowiednim typie może nie zadziałać zgodnie z oczekiwaniem. Proxy może wpływać na `equals`, nazwę klasy i testy. Jeśli zachowanie przekrojowe jest kluczowe, warto oddzielić je granicą komponentu zamiast wykonywać self-injection. AspectJ weaving ma inne możliwości, ale zwiększa złożoność.
+
+### 26. Dlaczego `@Transactional` nie działa przy wywołaniu z tej samej klasy?
+
+Domyślne zarządzanie transakcjami jest realizowane przez proxy. Klient wywołuje proxy, które otwiera transakcję, wywołuje target i kończy transakcję. Gdy metoda targetu woła inną metodę przez `this`, wywołanie nie przechodzi przez proxy, więc jej osobna konfiguracja `@Transactional` nie jest interpretowana.
+
+Rozwiązaniem jest przeniesienie operacji do osobnego beana wyznaczającego sensowną granicę transakcji albo użycie `TransactionTemplate`. Self-injection i pobieranie proxy z kontekstu są zwykle mniej czytelne. Trzeba też pamiętać, że metoda wywołana spoza Springa, np. na obiekcie utworzonym przez `new`, również nie korzysta z proxy.
+
+### 27. Propagation i isolation w `@Transactional`
+
+Propagation opisuje relację z istniejącą transakcją. `REQUIRED` dołącza lub tworzy nową; `REQUIRES_NEW` zawiesza zewnętrzną i tworzy niezależną; `NESTED` korzysta zwykle z savepointu, jeśli manager to wspiera; `MANDATORY`, `NEVER`, `NOT_SUPPORTED` i `SUPPORTS` wyrażają pozostałe kontrakty.
+
+Isolation kontroluje anomalie współbieżnych transakcji: dirty read, non-repeatable read i phantom read, ale konkretne zachowanie zależy od bazy i MVCC. `READ_COMMITTED` jest częstym domyślnym kompromisem; `SERIALIZABLE` daje silniejsze gwarancje kosztem konfliktów i retry. `REQUIRES_NEW` może wyczerpać pulę połączeń, gdy zewnętrzne transakcje trzymają swoje połączenia. Poziom dobiera się do niezmiennika, a nie „na wszelki wypadek”.
+
+### 28. Kiedy transakcja zostanie wycofana?
+
+Domyślnie Spring oznacza rollback dla `RuntimeException` i `Error`, lecz nie dla checked exception. Można skonfigurować `rollbackFor` i `noRollbackFor`. Jeśli wyjątek zostanie złapany i niewyrzucony poza interceptor, transakcja może się zatwierdzić, chyba że jawnie oznaczono ją rollback-only.
+
+Wyjątek z wewnętrznej operacji może oznaczyć wspólną transakcję rollback-only; późniejsza próba commit może dać `UnexpectedRollbackException`. Rollback bazy nie cofa wysłanego HTTP, pliku ani wiadomości wysłanej poza transakcyjnym zasobem. Dlatego integracje wymagają outboxa lub logiki kompensacyjnej. `readOnly=true` jest wskazówką/optymalizacją, nie zabezpieczeniem przed każdym zapisem.
+
+### 29. Jak działa auto-configuration w Spring Boot?
+
+Spring Boot ładuje klasy auto-konfiguracji deklarowane przez mechanizm importów. Konfiguracje używają warunków takich jak obecność klasy, beana, właściwości lub aplikacji webowej. Tworzą rozsądne domyślne beany, ale zwykle wycofują się, gdy aplikacja definiuje własny odpowiednik.
+
+Starter dostarcza spójny zestaw zależności, a auto-configuration dostarcza konfigurację. Diagnozę umożliwia condition evaluation report, `--debug` i Actuator. Własna auto-konfiguracja powinna mieć przestrzeń properties, warunki, brak założeń o kolejności i testy `ApplicationContextRunner`. „Magia Springa” staje się przewidywalna, gdy rozumie się definicje beanów i raport warunków.
+
+### 30. `@ConfigurationProperties` i walidacja
+
+Właściwości grupuje się w typowany obiekt z jednoznacznym prefiksem. Preferowane są niemutowalne rekordy lub binding przez konstruktor. `@Validated` wraz z Bean Validation pozwala odrzucić start aplikacji, jeśli brakuje wymaganej wartości, URL ma zły format albo limit jest poza zakresem.
+
+Typy takie jak `Duration`, `DataSize`, enum i zagnieżdżone klasy są bezpieczniejsze od ręcznego parsowania stringów. Należy dostarczyć metadata dla IDE i testować binding. Sekrety nie powinny mieć wartości domyślnych ani trafiać do logów/Actuator. W bibliotece rejestracja może odbywać się przez `@EnableConfigurationProperties`; skanowanie jest wygodne w aplikacji.
+
+### 31. Filtry, interceptory i AOP
+
+Servlet Filter działa na poziomie kontenera przed `DispatcherServlet` i może obsługiwać request/response niezależnie od kontrolera. Nadaje się do technicznych kwestii HTTP, np. korelacji, CORS czy części zabezpieczeń. `HandlerInterceptor` działa w Spring MVC wokół wyboru handlera i ma dostęp do metadanych kontrolera.
+
+Spring AOP działa wokół wywołań metod beanów i służy przekrojowym aspektom aplikacji, np. transakcjom czy autoryzacji metod. Nie należy używać AOP do ukrywania istotnego przepływu biznesowego. Trzeba rozumieć kolejność, async dispatch, obsługę wyjątków i fakt, że odczyt body w filtrze może zużyć strumień, jeśli nie zastosuje się wrappera.
+
+### 32. Globalna obsługa błędów REST API
+
+Stosuje się `@RestControllerAdvice` i metody `@ExceptionHandler`, mapując kontrolowane wyjątki na stabilny kontrakt błędu, najlepiej zgodny z RFC 9457 `ProblemDetail`. Odpowiedź powinna zawierać kod maszynowy, bezpieczny komunikat, status, identyfikator korelacji i ewentualnie błędy pól.
+
+Nie należy ujawniać stack trace, SQL ani danych wrażliwych. Błędy walidacji, konflikt, brak zasobu i brak autoryzacji mają różną semantykę HTTP. Nieznany błąd zwraca ogólne 500 i jest logowany z kontekstem. Kontrakt błędów trzeba wersjonować i testować. Błąd domenowy nie powinien znać HTTP; mapowanie należy do adaptera webowego.
+
+### 33. Spring Security, OAuth2 i OIDC
+
+Najpierw rozdziela się uwierzytelnienie od autoryzacji. Dla API Spring może działać jako OAuth2 Resource Server, weryfikując JWT lokalnie albo token opaque przez introspekcję. OIDC rozszerza OAuth2 o tożsamość użytkownika; access token służy API, a ID token klientowi i nie powinien być dowolnie używany jako access token.
+
+Należy walidować podpis, issuer, audience, czas i oczekiwany typ tokenu, a role/scopes mapować według jawnej polityki. Endpointy są zabezpieczane domyślnie, a wyjątki jawnie dopuszczane. Dla aplikacji przeglądarkowej trzeba świadomie wybrać sesję/BFF lub tokeny, uwzględnić CSRF, XSS i bezpieczne cookies. Hasła przechowuje się adaptacyjnym hashem. Autoryzacja obiektowa musi sprawdzać dostęp do konkretnego zasobu, nie tylko rolę.
+
+### 34. Jak działa Spring Security filter chain?
+
+`DelegatingFilterProxy` przekazuje obsługę do `FilterChainProxy`, który wybiera pierwszy pasujący `SecurityFilterChain`. Filtry odtwarzają lub ustanawiają `SecurityContext`, obsługują mechanizm logowania/token, autoryzację, wyjątki i zapis kontekstu. Kolejność filtrów jest istotna.
+
+Kilka chainów powinno mieć rozłączne, poprawnie uporządkowane matchery. Dodając własny filtr, trzeba określić jego miejsce względem znanego filtra i zachowanie dla błędów oraz wielokrotnego dispatchu. `permitAll` nie zawsze oznacza pominięcie całego chaina. W trybie stateless nie tworzy się przypadkowo sesji, a CSRF wyłącza się tylko po analizie sposobu przekazywania credentials.
+
+### 35. Testowanie Springa bez całego kontekstu
+
+Logikę domenową testuje się zwykłym JUnitem i Mockito bez Springa. Slice tests uruchamiają wycinek: `@WebMvcTest` dla warstwy MVC, `@DataJpaTest` dla JPA, testy klienta HTTP dla adapterów. `ApplicationContextRunner` jest dobry do konfiguracji i starterów.
+
+Pełny `@SpringBootTest` zostawia się dla ograniczonej liczby testów integracyjnych. Testcontainers pozwala sprawdzać prawdziwą semantykę PostgreSQL, brokera czy innej zależności zamiast polegać na różniącej się bazie in-memory. Ważne są także testy kontraktowe i end-to-end. Celem nie jest minimalny czas za wszelką cenę, lecz odpowiedni poziom testu dla rodzaju ryzyka.
+
+### 36. `@Mock`, `@MockBean`, `@WebMvcTest` i `@SpringBootTest`
+
+`@Mock` tworzy obiekt Mockito i nie wymaga Springa. `@MockBean` zastępuje/dodaje bean w kontekście testowym; w nowszych wersjach Springa należy sprawdzić aktualnie rekomendowany odpowiednik, np. `@MockitoBean`. Nadużycie mockowanych beanów zwiększa liczbę wariantów cache kontekstu i kruchość testów.
+
+`@WebMvcTest` ładuje kontrolery i infrastrukturę MVC, a zależności kontrolera zwykle zastępuje mockami. `@SpringBootTest` uruchamia pełny kontekst, opcjonalnie prawdziwy serwer. Należy jasno wiedzieć, czy testujemy mapowanie HTTP, wiring, integrację z bazą, czy regułę biznesową; samo „test przechodzi” nie oznacza, że test obejmuje właściwą granicę.
+
+### 37. Wolny start i problemy z kontekstem Springa
+
+Najpierw mierzy się czas poszczególnych faz, np. przez startup actuator/JFR i logi. Sprawdza się nadmierne component scanning, ciężkie operacje w konstruktorach i `@PostConstruct`, dużą liczbę kontekstów JPA, migracje, połączenia sieciowe oraz niepotrzebne auto-konfiguracje.
+
+Przy błędzie analizuje się najgłębsze `Caused by`, condition report i cykle zależności. Lazy initialization skraca start pozornie, ale przenosi awarię na pierwszy ruch. AOT/native image może zmienić charakterystykę, lecz wymaga zgodności refleksji i proxy. Optymalizacja startu powinna zachować fail-fast dla wymaganej konfiguracji.
+
+### 38. Bezpieczne zarządzanie konfiguracją i sekretami
+
+Konfiguracja niesekretna może pochodzić z repozytorium lub systemu deploymentu, a sekrety z dedykowanego secret managera/KMS. Sekretów nie umieszcza się w obrazie, repo, argumentach procesu, logach ani publicznych endpointach Actuator. Dostęp powinien być najmniejszy możliwy, audytowany i rozdzielony per środowisko.
+
+Potrzebne są rotacja, krótki czas życia credentials, obsługa dwóch wersji podczas rotacji i bezpieczne zachowanie przy niedostępności managera. Konfiguracja powinna być walidowana przy starcie, a wrażliwe wartości maskowane. Dynamiczne odświeżanie wymaga atomowego przełączenia i kontroli kompatybilności; nie każda właściwość jest bezpieczna do zmiany w locie.
+
+## JPA i bazy danych
+
+### 39. `LAZY`, `EAGER` i problem N+1
+
+`LAZY` odkłada pobranie relacji do momentu dostępu, a `EAGER` deklaruje natychmiastową dostępność, ale nie gwarantuje jednego zapytania. N+1 pojawia się, gdy jedno zapytanie pobiera N encji, a dostęp do relacji wywołuje N kolejnych zapytań.
+
+Wykrywa się go przez statystyki Hibernate, logi SQL, tracing i testy liczby zapytań. Rozwiązania to `join fetch`, entity graph, projekcje DTO lub batch fetching, dobrane do konkretnego use case'u. Ustawianie wszystkiego na EAGER prowadzi do nadmiarowych danych i iloczynów kartezjańskich. Open Session in View może ukrywać problem oraz przenosić zapytania do serializacji; lepiej jawnie pobierać dane w granicy aplikacyjnej.
+
+### 40. Persistence context i dirty checking
+
+Persistence context jest unit of work i mapą tożsamości: w jego obrębie ten sam rekord odpowiada tej samej instancji encji. Encja może być transient, managed, detached lub removed. Zmiany w managed entity są wykrywane przez dirty checking i przy flush przekładane na SQL.
+
+Flush synchronizuje kontekst z bazą, ale nie musi oznaczać commit. Może nastąpić przed zapytaniem lub przy commit. Duży kontekst zwiększa pamięć i koszt dirty checking, dlatego batch powinien okresowo `flush()` i `clear()`. Bulk update omija stan encji w kontekście, więc może pozostawić nieaktualne obiekty. Granica persistence context powinna odpowiadać krótkiemu use case'owi, nie całej sesji użytkownika.
+
+### 41. `persist`, `merge`, `save` i `flush`
+
+JPA `persist` przełącza nową instancję w stan managed; sama przekazana instancja jest dalej śledzona. `merge` kopiuje stan obiektu detached do zarządzanej instancji i zwraca tę zarządzaną instancję; argument nie staje się automatycznie managed. Ignorowanie wyniku `merge` jest częstym błędem.
+
+Spring Data `save` wybiera odpowiednią operację zależnie od wykrycia nowości encji, ale szczegóły warto znać dla danej strategii ID. `flush` wymusza wysłanie oczekujących zmian do bazy, umożliwiając wcześniejsze wykrycie constraint violation, lecz nie zatwierdza transakcji. Częste flushowanie szkodzi batchowaniu. Semantykę najlepiej ukryć w repozytorium dopasowanym do modelu domenowego.
+
+### 42. Konsekwencje używania encji JPA w API
+
+Encja przecieka szczegóły persistence, umożliwia mass assignment i przypadkową zmianę pól, których klient nie powinien kontrolować. Serializacja może uruchomić lazy loading, wywołać N+1, wejść w cykl relacji albo ujawnić dane. Zmiana schematu bazy zaczyna łamać kontrakt HTTP.
+
+DTO oddziela model transportowy, walidację i wersjonowanie od encji. Mapowanie ma koszt kodu, ale pozwala pobrać dokładnie potrzebne dane projekcją i chronić granice. Encja powinna zachowywać reguły domenowe, nie być uniwersalnym obiektem do JSON. W prostym wewnętrznym CRUD kompromis może być świadomy, lecz ryzyko trzeba nazwać.
+
+### 43. Optimistic i pessimistic locking
+
+Optimistic locking używa pola `@Version`. Aktualizacja zawiera oczekiwaną wersję; gdy ktoś zmienił rekord, liczba zmienionych wierszy wynosi zero i pojawia się konflikt. Dobrze działa przy rzadkich konfliktach, wymaga retry całej operacji lub komunikatu do użytkownika i chroni przed lost update.
+
+Pessimistic locking blokuje rekord w bazie, np. `SELECT FOR UPDATE`. Jest przydatny przy częstych konfliktach i krótkiej transakcji, ale zwiększa czekanie, ryzyko deadlocku i wymaga timeoutu. Nie powinno się trzymać blokady podczas zewnętrznego HTTP. W niektórych przypadkach najlepszy jest atomowy warunkowy `UPDATE`, constraint lub kolejka serializująca operacje.
+
+### 44. Jak projektować granice transakcji?
+
+Transakcja powinna obejmować spójny przypadek użycia i chronić konkretny niezmiennik. Zwykle granicę wyznacza warstwa aplikacyjna. Powinna być krótka: bez oczekiwania na użytkownika, długiego obliczenia i połączeń sieciowych. Odczyt potrzebny do decyzji i zapis muszą mieć odpowiednią ochronę przed zmianą współbieżną.
+
+Nie należy tworzyć transakcji per metoda repozytorium, jeśli use case wymaga kilku operacji atomowych. Z kolei ogromna transakcja zwiększa blokady, log transakcyjny i koszt rollbacku. Efekty zewnętrzne oddziela się outboxem. Warto jawnie zdecydować isolation, zachowanie retry i reakcję na częściowy błąd.
+
+### 45. Jak analizować wolne zapytanie SQL?
+
+Najpierw przechwytuje się rzeczywiste SQL, parametry, czas, liczbę wywołań i kontekst. Następnie używa się `EXPLAIN (ANALYZE, BUFFERS)` w bezpiecznym środowisku, porównując estymacje z rzeczywistą kardynalnością. Szuka się pełnych skanów, złej kolejności joinów, sortowania na dysku, wielu odczytów i blokad.
+
+Indeks musi odpowiadać predykatom, joinom, sortowaniu i selektywności. Problemem może być także zbyt wiele zapytań, pobieranie zbędnych kolumn, brak statystyk, parameter sniffing, blokada albo przeciążona pula. Optymalizację potwierdza się na reprezentatywnych danych i ruchem, ponieważ plan dla małej bazy developerskiej bywa mylący.
+
+### 46. Indeks złożony i kolejność kolumn
+
+Indeks B-tree na `(a, b)` zwykle dobrze obsługuje wyszukiwanie po `a` oraz po `a` i `b`, ale niekoniecznie tylko po `b`, zgodnie z zasadą lewego prefiksu. Kolumny równości zazwyczaj umieszcza się przed zakresem, a kolejność dopasowuje do najważniejszych zapytań, selektywności i sortowania.
+
+Indeks może być covering dzięki dołączonym kolumnom, częściowy dla określonego warunku lub unikalny, jeśli chroni regułę. Każdy indeks kosztuje miejsce i spowalnia zapis. Kolejność nie wynika wyłącznie z „najbardziej selektywna pierwsza”; trzeba sprawdzić plan dla rzeczywistych zapytań, możliwości DB i rozkład danych.
+
+### 47. Migracja bazy bez przestoju
+
+Stosuje się wzorzec expand-migrate-contract. Najpierw dodaje się kompatybilny element, np. nullable kolumnę lub nową tabelę. Następnie wdraża kod obsługujący starą i nową postać, wykonuje kontrolowany backfill, przełącza odczyt, monitoruje, a dopiero w późniejszym wdrożeniu usuwa stary element.
+
+Zmiana musi być kompatybilna podczas rolling deploymentu. Duże DDL i indeksy tworzy się mechanizmem online/concurrent właściwym dla bazy, uwzględniając blokady. Backfill ma porcje, checkpoint, limit obciążenia i możliwość wznowienia. Migracji opublikowanej na produkcji nie edytuje się; dodaje się kolejną. Rollback aplikacji nie może przywrócić usuniętego modelu danych, dlatego destrukcyjne kroki są opóźnione.
+
+### 48. Dlaczego `OFFSET` jest wolny i czym jest keyset pagination?
+
+Przy dużym `OFFSET` baza nadal musi odnaleźć i pominąć wcześniejsze rekordy, więc koszt rośnie wraz z numerem strony. Współbieżne inserty i usunięcia mogą powodować duplikaty lub pominięcia między stronami.
+
+Keyset pagination używa ostatnio widzianego stabilnego klucza, np. `WHERE (created_at, id) < (?, ?) ORDER BY created_at DESC, id DESC LIMIT ?`. Jest szybka z odpowiednim indeksem i stabilniejsza przy zmianach. Wymaga deterministycznego, najlepiej unikalnego porządku i nie pozwala tanio skoczyć do dowolnej strony. Cursor powinien być nieprzezroczysty, walidowany i zawierać wszystkie elementy porządku.
+
+## Mikroserwisy i integracje
+
+### 49. REST, messaging czy gRPC?
+
+REST jest dobry dla synchronicznych, zasobowych API, szerokiej interoperacyjności i publicznych klientów. gRPC daje silny kontrakt protobuf, wydajne połączenia i streaming, dobrze sprawdzając się wewnętrznie, ale wymaga dojrzałej obsługi proxy, kompatybilności i narzędzi klientów.
+
+Messaging rozdziela czasowo producenta i konsumenta, buforuje skoki ruchu i wspiera fan-out, lecz wprowadza eventual consistency, duplikaty, kolejność i trudniejszą obserwowalność. Wybór wynika z semantyki: czy nadawca potrzebuje natychmiastowego wyniku, czy operacja może być przyjęta do realizacji. Często system używa kombinacji, ale każda dodatkowa technologia musi mieć uzasadnienie operacyjne.
+
+### 50. Timeout, retry i circuit breaker
+
+Każde wywołanie zdalne powinno mieć connect timeout i response/read timeout mieszczące się w budżecie żądania. Retry stosuje się tylko dla błędów przejściowych i operacji idempotentnych, z limitem prób, exponential backoff, jitter i respektowaniem deadline'u oraz `Retry-After`.
+
+Circuit breaker szybko odrzuca wywołania, gdy zależność prawdopodobnie nie działa, dając jej czas na odzyskanie. Nie zastępuje timeoutu. Potrzebne są także bulkhead, limit współbieżności i sensowny fallback, który nie kłamie o sukcesie. Metryki powinny rozróżniać pierwotne wywołania, retry, timeouty, odrzucenia circuit breakera i wynik końcowy.
+
+### 51. Dlaczego retry może pogorszyć awarię?
+
+Gdy zależność zwalnia, pierwotne żądania pozostają aktywne, a retry dodaje kolejne. Powstaje retry storm, kolejki rosną, pule się wyczerpują, a awaria rozlewa się kaskadowo. Retry na kilku warstwach mnoży liczbę prób, np. trzy próby na trzech poziomach mogą dać 27 wywołań.
+
+Retry powinien być własnością jednej warstwy, mieć wspólny deadline i retry budget. Nie ponawia się błędów walidacji ani większości 4xx. Dla zapisu potrzebna jest idempotencja, bo timeout nie mówi, czy serwer wykonał operację. Jitter zapobiega zsynchronizowanym falom, a load shedding chroni usługę przed nieograniczonym backlogiem.
+
+### 52. Spójność danych między mikroserwisami
+
+Najpierw należy ustalić właściciela danych; inne usługi nie powinny zapisywać bezpośrednio do jego tabel. Silną spójność zachowuje się wewnątrz granicy usługi, a między usługami zwykle stosuje się zdarzenia i eventual consistency. Jeśli jeden niezmiennik stale wymaga atomowych zmian w dwóch usługach, granica może być błędna.
+
+Saga koordynuje kroki i kompensacje, outbox zapewnia niezawodne opublikowanie zmiany po lokalnej transakcji, a konsumenci są idempotentni. Trzeba zaprojektować stany pośrednie, UI „w trakcie”, reconciliację i obsługę wiadomości spóźnionych. 2PC bywa dostępne, ale silnie sprzęga dostępność i operacje; nie jest domyślną odpowiedzią.
+
+### 53. Saga, transactional outbox i CDC
+
+Saga jest sekwencją lokalnych transakcji z akcjami kompensującymi. Może być choreografią zdarzeń albo orkiestracją przez jawny proces manager. Kompensacja nie jest rollbackiem czasu: musi uwzględniać nieodwracalne skutki i współbieżne zmiany.
+
+Transactional outbox zapisuje zmianę domenową i rekord wiadomości w jednej transakcji DB. Osobny publisher wysyła rekord, a duplikaty są możliwe, więc konsument musi być idempotentny. CDC odczytuje log zmian bazy i może publikować outbox bez pollingu. Trzeba zarządzać kolejnością per aggregate, schematem zdarzeń, retencją, lagiem, błędami publikacji i obserwowalnością całego przepływu.
+
+### 54. Duplikaty i kolejność komunikatów
+
+Zakłada się co najmniej jednokrotne dostarczenie. Konsument deduplikuje stabilny `messageId` w trwałym magazynie lub projektuje naturalnie idempotentny zapis. Dedup i efekt biznesowy powinny być w jednej lokalnej transakcji.
+
+Globalna kolejność jest kosztowna i rzadko potrzebna. Zwykle wymaga się kolejności per aggregate/key, kierując dany klucz do jednej partycji. Konsument może użyć numeru wersji, odrzucać stare zdarzenia lub buforować brakujące, ale musi mieć strategię na wiadomość, która nigdy nie dotrze. DLQ jest miejscem do operacyjnej obsługi, a nie automatycznym rozwiązaniem; replay nie może łamać idempotencji.
+
+### 55. Jak wersjonować API bez psucia klientów?
+
+Zmiany addytywne są najbezpieczniejsze: nowe opcjonalne pole, nowy endpoint lub nowa wartość, jeśli klienci tolerują nieznane wartości. Nie zmienia się znaczenia istniejącego pola, nie robi pola opcjonalnego obowiązkowym i nie usuwa bez procesu deprecacji.
+
+Wersjonowanie może być w URL, nagłówku lub media type; ważniejsza od formy jest polityka kompatybilności, okres wsparcia i telemetria użycia. Contract tests i schema compatibility checks blokują złamania. Klienci powinni stosować tolerant reader, lecz serwer nie może zakładać, że każdy klient ignoruje nowe enumy. Dla eventów obowiązuje podobna ewolucja i rejestr schematów.
+
+### 56. System odporny na częściowe awarie
+
+Każde zdalne wywołanie może zakończyć się sukcesem, błędem, timeoutem albo nieznanym wynikiem. Projekt obejmuje timeouty, idempotencję, bounded retries, circuit breakers, bulkheads, kolejki ograniczone i degradację. Zależności krytyczne oddziela się od opcjonalnych, aby awaria rekomendacji nie blokowała zamówienia.
+
+Stan procesu jest trwały i możliwy do wznowienia. Potrzebna jest reconciliacja wykrywająca rozbieżności, nie tylko happy path. Readiness nie powinna automatycznie wyłączać wszystkich instancji z powodu opcjonalnej zależności. Testy chaos/fault injection sprawdzają założenia, a SLO i error budget pomagają dobrać inwestycję w odporność.
+
+### 57. Logi, metryki i trace'y
+
+Logi opisują zdarzenia z kontekstem: timestamp, poziom, usługa, correlation/trace ID, kod zdarzenia i bezpieczne identyfikatory biznesowe. Powinny być strukturalne, bez sekretów i nadmiarowych danych osobowych. Stack trace trafia do nieoczekiwanych błędów, nie do każdej kontrolowanej odmowy biznesowej.
+
+Metryki pokazują trendy: rate, errors, duration i saturation, uzupełnione metrykami biznesowymi. Etykiety muszą mieć ograniczoną kardynalność; user ID nie jest etykietą Prometheusa. Distributed tracing pokazuje drogę żądania i propaguje kontekst przez HTTP/messaging. Telemetria powinna umożliwić odpowiedź „co, gdzie i od kiedy się psuje” oraz mieć alerty oparte na symptomach/SLO.
+
+### 58. Wdrożenie bez przestoju i kompatybilność
+
+Nowa i stara wersja przez pewien czas działają jednocześnie, więc API, eventy i baza muszą być wstecznie kompatybilne. Migracje wykonuje się expand-contract. Readiness dopuszcza instancję dopiero po gotowości, a graceful shutdown przestaje przyjmować ruch i kończy bieżące zadania.
+
+Rolling, blue-green lub canary deployment dobiera się do ryzyka. Feature flags rozdzielają wdrożenie kodu od aktywacji funkcji, ale wymagają właściciela i sprzątania. Obserwuje się metryki techniczne i biznesowe oraz automatyczne kryteria zatrzymania. Rollback aplikacji musi być możliwy bez cofania destrukcyjnej migracji; czasem bezpieczniejszy jest roll-forward.
+
+## Architektura i seniority
+
+### 59. Jak rozdzielić domenę od infrastruktury?
+
+Model domenowy zawiera pojęcia, reguły i niezmienniki, a nie adnotacje transportu czy szczegóły brokera. Warstwa aplikacyjna orkiestruje use case'y i definiuje porty, np. repozytorium czy bramę płatniczą. Adaptery implementują porty przez JPA, HTTP lub messaging.
+
+Zależności wskazują do środka: domena nie importuje Springa. Nie trzeba dogmatycznie tworzyć interfejsu dla każdej klasy; granice są potrzebne tam, gdzie oddzielają zmienną technologię, test lub istotny kontrakt. Mapowanie między DTO, domeną i persistence ma koszt, lecz zapobiega sprzężeniu. Pakiety feature-first często lepiej chronią moduły niż globalne foldery `controller/service/repository`.
+
+### 60. Kiedy modularny monolit jest lepszy od mikroserwisów?
+
+Gdy domena i granice nie są jeszcze stabilne, zespół jest mały, wymagane są częste transakcje między modułami albo organizacja nie ma dojrzałej platformy operacyjnej. Modularny monolit daje prostsze wdrożenie, debugowanie, testy i transakcje bez rezygnacji z logicznych granic.
+
+Warunkiem jest realne egzekwowanie modułów: ukryte implementacje, publiczne API, brak wspólnych tabel i testy architektury, np. ArchUnit lub Spring Modulith. Mikroserwis ma sens przy niezależnym skalowaniu, różnych wymaganiach niezawodności, autonomicznych zespołach lub silnej granicy domenowej. Podział na mikroserwisy nie naprawia złej modularności; zamienia ją w sieciowy distributed monolith.
+
+### 61. DDD, CQRS i event sourcing
+
+DDD jest przydatne w złożonej domenie, gdzie wspólny język, bounded contexts, agregaty i jawne niezmienniki redukują nieporozumienia. Dla prostego CRUD pełny zestaw wzorców może być przerostem. DDD to przede wszystkim współpraca z domeną i modelowanie, nie foldery ani zestaw adnotacji.
+
+CQRS rozdziela modele zapisu i odczytu, gdy mają istotnie różne potrzeby; nie wymaga osobnych baz ani event sourcingu. Event sourcing przechowuje zdarzenia jako źródło prawdy, daje historię i możliwość odtworzenia, ale wprowadza wersjonowanie zdarzeń, projekcje, eventual consistency, prywatność danych i trudniejszą operacyjność. Wybór powinien wynikać z konkretnego problemu i prototypu ryzyk, nie z prestiżu wzorca.
+
+### 62. Jak podejmować decyzję build vs buy?
+
+Najpierw określa się, czy funkcja jest przewagą biznesową i jakie są wymagania: bezpieczeństwo, integracja, SLA, dane, regulacje i czas. Porównuje się pełny koszt życia: implementację, utrzymanie, on-call, aktualizacje, migracje, szkolenie i koszt wyjścia od dostawcy.
+
+Rozwiązanie kupione skraca czas, ale wnosi vendor lock-in, ograniczenia i ryzyko dostawcy. Własne daje kontrolę, lecz organizacja staje się jego wieloletnim producentem. Warto zrobić time-boxed spike, sprawdzić API, eksport danych, limity, awarie i warunki umowy. Decyzję dokumentuje się w ADR wraz z założeniami i datą ponownego przeglądu.
+
+### 63. Jak zarządzać długiem technicznym?
+
+Dług opisuje się konkretnie przez koszt i ryzyko: opóźnia zmiany, zwiększa awarie, blokuje aktualizację lub narusza bezpieczeństwo. Element ma właściciela, dowody, proponowaną redukcję i priorytet. Nie wszystko, co nieeleganckie, jest długiem wartym spłaty.
+
+Łączy się małe poprawki z bieżącą pracą, większe inicjatywy z celami produktu, a krytyczne ryzyko bezpieczeństwa lub niezawodności eskaluje. Przydatne są metryki lead time, change failure rate, incydenty i czas obsługi. „20% czasu” może pomagać, ale bez priorytetu zamienia się w losowe refaktoryzacje. Senior tłumaczy problem na język wpływu biznesowego, a nie wyłącznie estetyki kodu.
+
+### 64. Jak przeprowadzać code review?
+
+Najpierw rozumie się cel i kontrakt zmiany. Ocenia się poprawność, bezpieczeństwo, współbieżność, transakcje, kompatybilność, obserwowalność i testy; styl w dużej mierze powinny egzekwować automaty. Komentarz wskazuje ryzyko i uzasadnienie, rozróżnia blokadę od sugestii i pozostaje rzeczowy.
+
+Zmiany powinny być małe, a autor dostarczyć kontekst i sposób weryfikacji. Reviewer nie powinien przepisywać kodu według osobistego gustu ani zatwierdzać automatycznie. Przy rozbieżności szybka rozmowa bywa lepsza niż długa seria komentarzy, a wniosek warto utrwalić w kodzie, ADR lub regule lint. Review obejmuje także migrację, konfigurację i plan wdrożenia.
+
+### 65. Niezgoda z decyzją architektoniczną
+
+Najpierw upewniam się, że rozumiem cele, ograniczenia i dane stojące za decyzją. Przedstawiam alternatywy wraz z kosztami, ryzykami i możliwością odwrócenia, zamiast argumentować autorytetem. Przy dużej niepewności proponuję krótki eksperyment lub pomiar.
+
+Decyzję zapisujemy w ADR. Jeśli odpowiedzialna osoba wybierze inną opcję, a nie narusza ona bezpieczeństwa, prawa lub krytycznej niezawodności, wykonuję ją profesjonalnie i pomagam monitorować założenia. Przy krytycznym ryzyku eskaluję właściwą ścieżką. Senior potrafi „disagree and commit”, ale nie ukrywa faktów ani nie sabotuje rozwiązania.
+
+### 66. Jak dzielić duży refactoring?
+
+Najpierw zabezpiecza się obecne zachowanie testami charakterystyki i telemetrią. Wyznacza granicę, wprowadza adapter lub abstrakcję, a następnie migruje pionowymi fragmentami. Branch by abstraction i feature flags pozwalają utrzymywać kod wdrażalny bez wielomiesięcznego brancha.
+
+Każdy etap powinien być samodzielnie bezpieczny, obserwowalny i możliwy do wycofania. Migrację danych oddziela się od zmiany odczytu, a stary kod usuwa dopiero po potwierdzeniu braku ruchu. Trzeba ograniczyć czas podwójnego zapisu i liczbę tymczasowych ścieżek. Refactoring konkuruje z rozwojem, więc jego postęp i korzyści powinny być mierzalne.
+
+### 67. Jak opowiadać o awarii produkcyjnej?
+
+Dobra odpowiedź ma strukturę: kontekst i wpływ, sygnał wykrycia, działania ograniczające skutki, diagnoza, przyczyna źródłowa i zmiany zapobiegawcze. W trakcie incydentu priorytetem jest ograniczenie wpływu: rollback, wyłączenie flagi, redukcja ruchu lub degradacja; głęboki debugging może poczekać.
+
+Warto pokazać pracę z metrykami, logami i trace'ami, komunikację z interesariuszami oraz decyzje pod niepewnością. Postmortem powinien być bez obwiniania, ale z konkretnymi właścicielami działań. „Human error” nie jest wystarczającą przyczyną; pytamy, dlaczego system pozwolił jednemu błędowi spowodować taki wpływ i dlaczego detekcja lub recovery nie zadziałały.
+
+### 68. Jak mentorować mniej doświadczonych programistów?
+
+Najpierw poznaję ich cele i poziom samodzielności. Daję zadania nieco ponad obecną kompetencję, wyjaśniam kontekst i kryteria sukcesu, ale nie odbieram własności. Używam pytań, pair programmingu, przykładów i szybkiego feedbacku o konkretnym zachowaniu.
+
+Rozróżniam błędy, które można bezpiecznie przeżyć, od ryzyk produkcyjnych. Stopniowo zwiększam zakres odpowiedzialności, wspieram prezentowanie decyzji i śledzę postęp. Mentoring nie oznacza tworzenia zależności od mentora; sukcesem jest samodzielność. Jednocześnie senior uczy się od innych i nie zakłada, że staż automatycznie daje rację.
+
+### 69. Jakie kompromisy uwzględnić przy projektowaniu nowego serwisu?
+
+Zaczynam od potrzeb biznesowych, SLO, wolumenu, profilu ruchu, spójności, bezpieczeństwa, danych i własności zespołu. Ustalam granicę domenową, kontrakt, model awarii, wzrost i wymagania operacyjne. Rozważam prostotę kontra elastyczność, latency kontra consistency, koszt kontra dostępność oraz build kontra buy.
+
+Projekt obejmuje migracje, idempotencję, obserwowalność, limity, wdrożenie, rollback, backup/restore i testowanie. Nie projektuję na hipotetyczne miliardy, ale zostawiam drogę ewolucji w miejscach naprawdę nieodwracalnych, np. publiczny kontrakt czy partycjonowanie danych. Założenia zapisuję i wskazuję sygnały, po których architektura wymaga zmiany.
+
+### 70. System płatności odporny na podwójne obciążenie
+
+Każda intencja płatności dostaje stabilny identyfikator i idempotency key unikalny w zakresie sprzedawcy/operacji. Żądanie jest zapisane w bazie ze stanem, kwotą, walutą i hashem istotnych parametrów. Unikalny constraint sprawia, że dwa równoległe żądania nie utworzą dwóch operacji. Ponowienie tego samego klucza zwraca istniejący rezultat; ten sam klucz z innymi parametrami jest błędem.
+
+Wywołanie operatora płatności również używa jego mechanizmu idempotency. Timeout daje stan `UNKNOWN/PENDING`, nie automatyczną drugą płatność. Worker lub proces reconciliacji pyta operatora o wynik. Zmiany stanu są chronione wersją lub warunkowym update'em i dozwoloną maszyną stanów. Webhooki są uwierzytelniane, deduplikowane i mogą przyjść w dowolnej kolejności.
+
+Lokalny zapis i publikacja zdarzenia odbywają się przez transactional outbox. Konsumenci, np. realizacja zamówienia, także są idempotentni. Refund jest osobną operacją z własnym kluczem i audytem, nie „cofnięciem rekordu”. System posiada ledger lub niezmienny dziennik zmian, alerty na długie stany pending i okresową reconciliację z raportem operatora. Nigdy nie loguje pełnych danych karty; zakres PCI i tokenizacja są elementem projektu.
+
+Przykładowy przebieg:
+
+1. API waliduje żądanie i idempotency key.
+2. Transakcja tworzy `PaymentIntent`, o ile klucz nie istnieje.
+3. Worker próbuje obciążyć przez operatora z tym samym kluczem.
+4. Wynik aktualizuje stan warunkowo i zapisuje rekord outbox.
+5. Timeout pozostawia stan nierozstrzygnięty; reconciliacja ustala prawdę u operatora.
+6. Zdarzenie `PaymentSucceeded` jest publikowane co najmniej raz, a konsumenci deduplikują je.
+
+Ostatecznej gwarancji nie daje sam `synchronized`, pojedyncza transakcja lokalna ani „exactly once” brokera. Daje ją spójny zestaw: stabilna tożsamość operacji, constraint, idempotencja na każdej granicy, jawne stany nierozstrzygnięte, trwały workflow oraz reconciliacja z zewnętrznym źródłem prawdy.
+
+## Jak odpowiadać na rozmowie
+
+Odpowiedź seniorska zwykle zawiera cztery elementy: definicję, przykład zastosowania, kompromis oraz sposób weryfikacji na produkcji. Nie trzeba recytować wszystkich detali. Lepiej powiedzieć: „wybrałbym `READ_COMMITTED`, ale niezmiennik zabezpieczyłbym constraintem i warunkowym update'em, ponieważ…”, niż wymienić poziomy izolacji bez związku z problemem.
+
+W pytaniach sytuacyjnych warto doprecyzować skalę, SLO, rodzaj bazy, wymagania spójności i możliwości zespołu. Senior nie zgaduje ukrytych wymagań; ujawnia założenia i pokazuje, jak decyzja zmieniłaby się po ich zmianie.
