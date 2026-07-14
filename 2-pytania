@@ -1,0 +1,218 @@
+Tak — jest sporo dobrych problemów o wspólnym rdzeniu. Najlepiej unikać pytań o dokładny wyjątek lub składnię i pytać: „co jest ryzykowne, dlaczego i jak to naprawić?”.
+
+Najlepsze pytania wspólne dla Javy, Pythona i C#
+
+1. Przypisanie nie tworzy kopii
+
+Pytanie
+
+registrations = lista zapisów na kurs
+backup = registrations
+backup.clear()
+
+Po wyczyszczeniu backup znika również zawartość registrations. Dlaczego? Jak utworzyć prawdziwą kopię? Co się stanie, jeśli lista zostanie skopiowana, ale obiekty zapisów pozostaną mutowalne?
+
+Klucz odpowiedzi
+
+Obie zmienne wskazują na ten sam obiekt. Skopiowanie samej referencji nie tworzy nowej listy.
+
+Kopia płytka tworzy nową kolekcję, ale jej elementy nadal mogą być współdzielone. Zmiana backup[0].status może więc zmienić również element widziany w oryginalnej liście. Rozwiązaniem może być:
+
+* użycie obiektów niemutowalnych,
+* kopiowanie obiektów domenowych,
+* przemyślana kopia głęboka,
+* oddzielenie modelu roboczego od przechowywanych encji.
+
+Pythonowa dokumentacja wprost rozróżnia przypisanie, kopię płytką i głęboką: ⁠Python copy.
+
+Sprawdza: rozumienie modelu obiektowego, grafu obiektów i efektów ubocznych.
+
+⸻
+
+2. Tożsamość obiektu a równość biznesowa
+
+Pytanie
+
+a = Student(id=17, name="Anna")
+b = Student(id=17, name="Anna")
+
+Czy a i b reprezentują tego samego studenta? Czy zbiór powinien przechowywać jeden czy dwa elementy? Co powinno decydować o równości?
+
+Klucz odpowiedzi
+
+Są to dwa różne obiekty w pamięci, ale mogą reprezentować tę samą encję biznesową. Kandydat powinien najpierw określić regułę domenową, np. „studentów identyfikuje stabilne studentId”.
+
+Jeżeli obiekty uznawane za równe trafiają do zbioru albo są kluczami mapy, ich wartości hash również muszą być zgodne. Pola zmienne, takie jak nazwisko czy status, zwykle nie powinny określać tożsamości klucza.
+
+Odpowiedniki:
+
+Java	Python	C#
+equals / hashCode	__eq__ / __hash__	Equals / GetHashCode
+
+Kontrakty opisują oficjalne dokumentacje ⁠Javy, ⁠Pythona i ⁠.NET.
+
+Sprawdza: modelowanie domeny, umiejętność oddzielenia tożsamości technicznej od biznesowej.
+
+⸻
+
+3. Udostępnienie mutowalnej kolekcji
+
+Pytanie
+
+Obiekt Course udostępnia metodę getRegistrations(). Inny fragment aplikacji wykonuje:
+
+course.getRegistrations().clear()
+
+W ten sposób omija sprawdzanie uprawnień i reguły anulowania zapisów. Jak zmienić projekt?
+
+Klucz odpowiedzi
+
+Obiekt ujawnił swój mutowalny stan. Rozsądne rozwiązania to:
+
+* zwracanie kolekcji tylko do odczytu,
+* zwracanie kopii,
+* udostępnianie metod domenowych, np. enroll() i cancelRegistration(),
+* ponowne pilnowanie kluczowych reguł w bazie danych.
+
+Najlepsza odpowiedź zauważa, że sama kolekcja „read-only” nie wystarcza, jeżeli jej elementy nadal można dowolnie modyfikować.
+
+Sprawdza: enkapsulację, projektowanie API i pilnowanie niezmienników.
+
+⸻
+
+4. Usuwanie elementów podczas iterowania
+
+Pytanie
+
+for each registration in registrations:
+    if registration.isCancelled:
+        registrations.remove(registration)
+
+Co może pójść źle? Jak napisać to bezpieczniej?
+
+Klucz odpowiedzi
+
+Modyfikowana jest struktura, po której właśnie porusza się iterator. W zależności od języka i kolekcji może pojawić się wyjątek, pominięcie elementów albo nieoczekiwany wynik.
+
+Bezpieczniejsze rozwiązania:
+
+* utworzenie nowej, przefiltrowanej kolekcji,
+* zebranie elementów do usunięcia i usunięcie ich później,
+* użycie operacji filtrowania,
+* użycie mechanizmu usuwania oficjalnie wspieranego przez iterator.
+
+Nie należy pytać o nazwę konkretnego wyjątku — objaw różni się między językami.
+
+Sprawdza: analizę algorytmu i stan kolekcji podczas wykonywania programu.
+
+⸻
+
+5. Pieniądze i liczby zmiennoprzecinkowe
+
+Pytanie
+
+fee = 0.1 + 0.2
+if fee == 0.3:
+    acceptPayment()
+
+Czy kod jest bezpieczny? Jak przechowywać kwoty i wykonywać obliczenia finansowe?
+
+Klucz odpowiedzi
+
+Typy binarne, takie jak Java/C# double i Python float, nie reprezentują dokładnie wielu prostych ułamków dziesiętnych. Bezpośrednie porównanie może więc zawieść.
+
+Dla pieniędzy należy użyć:
+
+* Java: BigDecimal,
+* Python: Decimal,
+* C#: decimal,
+* ewentualnie liczby całkowitej reprezentującej najmniejszą jednostkę, np. grosze.
+
+Kandydat powinien również zapytać o regułę zaokrąglania i moment jej zastosowania. Problem opisują oficjalne materiały ⁠Pythona, ⁠Javy i ⁠C#.
+
+Sprawdza: świadomość reprezentacji danych i znaczenie wymagań domenowych.
+
+⸻
+
+6. Zasób nie zostaje zamknięty po błędzie
+
+Pytanie
+
+connection = openConnection()
+saveRegistration(connection)
+connection.close()
+
+Co się stanie, jeżeli saveRegistration zgłosi błąd? Jak powinien wyglądać bezpieczny kod?
+
+Klucz odpowiedzi
+
+Instrukcja zamykająca może nie zostać wykonana, co prowadzi do wycieku połączeń, plików lub blokad. Zasób powinien być związany z zakresem wykonywania:
+
+* Java: try-with-resources,
+* Python: with,
+* C#: using.
+
+Zamknięcie połączenia nie jest tym samym co wycofanie transakcji — dobry kandydat rozróżni te dwa problemy. Mechanizmy opisują dokumentacje ⁠Javy, ⁠Pythona i ⁠C#.
+
+Sprawdza: analizę ścieżek błędów i zarządzanie zasobami.
+
+⸻
+
+7. Niepełny klucz cache’a
+
+Pytanie
+
+cache[courseId] = canEnroll(student, course, semester)
+
+Wynik zależy od studenta, semestru, uprawnień i aktualnego stanu kursu, ale kluczem jest tylko courseId. Co może się wydarzyć?
+
+Klucz odpowiedzi
+
+Różne zapytania zostaną potraktowane jak identyczne. Student może zobaczyć wynik policzony dla innej osoby albo poprzedniego semestru.
+
+Kandydat powinien rozważyć:
+
+* uwzględnienie wszystkich danych wpływających na wynik,
+* czas ważności i unieważnianie cache’a,
+* czy wynik w ogóle nadaje się do cache’owania,
+* współbieżny dostęp,
+* możliwość ujawnienia danych lub decyzji dotyczących innego użytkownika.
+
+Sprawdza: myślenie przyczynowe, bezpieczeństwo danych i dostrzeganie ukrytych zależności.
+
+⸻
+
+8. Ponowienie żądania po częściowym sukcesie
+
+Pytanie
+
+Serwer zapisał rejestrację w bazie, ale połączenie zerwało się przed wysłaniem odpowiedzi. Klient ponawia żądanie. Co może się stać i jak temu zapobiec?
+
+Klucz odpowiedzi
+
+Klient nie wie, czy pierwsza operacja się udała. Ponowienie może utworzyć drugi zapis albo dwukrotnie wysłać powiadomienie.
+
+Możliwe zabezpieczenia:
+
+* unikalne ograniczenie, np. student–kurs–semestr,
+* idempotency key,
+* transakcja dla powiązanych zmian w bazie,
+* operacja typu „utwórz albo zwróć istniejący”,
+* wysyłanie powiadomienia po zatwierdzeniu transakcji,
+* outbox lub bezpiecznie ponawialna obsługa komunikatu.
+
+Nie trzeba znać nazwy „idempotencja”. Pełnowartościowa jest odpowiedź opisująca problem własnymi słowami.
+
+Sprawdza: myślenie systemowe i gotowość do pracy przy aplikacjach webowych.
+
+Dodatkowe pytania rotacyjne
+
+Warto także wykorzystać:
+
+* globalny/statyczny mutowalny stan powodujący zależność testów i wycieki danych między użytkownikami,
+* rozróżnienie null/None, pustej kolekcji, wartości zero i „jeszcze nie obliczono”,
+* niejednoznaczną godzinę lokalną podczas zmiany czasu — lokalna data i godzina nie zawsze wskazują jeden moment; Python formalnie rozróżnia daty „aware” i „naive” (⁠dokumentacja),
+* wymaganie „maksymalnie 20 znaków” dla emoji i znaków łączonych — problem jest wspólny, choć Java/C# i Python mogą inaczej liczyć długość,
+* częściowo wykonaną operację: zapis powstał, liczba miejsc nie została zmniejszona albo odwrotnie.
+
+Do głównego scenariusza dodałbym obowiązkowo pytania 1, 5 i 8. Pozostałe traktowałbym jako bank zamienników. Ocena powinna premiować wykrycie ryzyka, wyjaśnienie przyczyny, zaproponowanie rozwiązania i testów — nie znajomość nazw klas czy konstrukcji konkretnego języka.
