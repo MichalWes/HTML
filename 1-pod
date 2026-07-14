@@ -1,0 +1,29 @@
+A. Wymagania i modelowanie
+
+doprecyzowanie problemu, rozbijanie go na elementy, modelowanie stanów i odpowiedzialności, kreatywność
+
+przygotowuje do projektowania logiki biznesowej i klas/komponentów Springowych
+
+B. Logika i struktury danych
+
+czytanie kodu, warunki, przypadki brzegowe, testy, kolekcje, mapy, mutowalność i koszt algorytmu
+
+sprawdza fundament potrzebny do pisania poprawnego kodu w Javie
+
+C. Web, baza i współbieżność
+
+przepływ klient–serwer–baza, model danych, SQL, ponowione żądania, współbieżność i komunikację procesów
+
+najbliższy codziennej pracy przy aplikacjach webowych Java + Spring
+
+D. Debugging, testy i bezpieczeństwo
+
+budowanie hipotez, analizę dowodów, testowanie, bezpieczeństwo obiektowe i diagnozę wydajności
+
+sprawdza pracę z błędami produkcyjnymi, logami, testami i zabezpieczaniem endpointów
+
+E. Naucz–sprawdź transfer
+
+szybkość przyswajania nowego modelu, rozdzielanie odpowiedzialności, transakcje i testowalność
+
+bezpośrednio sprawdza, czy kandydat potrafi wejść w Controller–Service–Repository, transakcje i DI
